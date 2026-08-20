@@ -42,12 +42,6 @@ TCP连接(IP:端口) -> HTTP CONNECT 隧道 -> TLS 握手 -> GET https://speed.c
 
 ## 编译
 
-```powershell
-cd C:\Users\hy718\Desktop\ASNIPtest\主程序
-go mod tidy        # 首次编译自动拉取 ASN 检测依赖(geoip2-golang), 需联网
-go build -o proxyipcheck.exe
-```
-
 ## 输入文件格式（proxyip.txt）
 
 每行一个地址，支持 `IP:端口` 或 `IP 端口`，支持域名，`#` 开头为注释：
