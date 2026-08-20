@@ -33,12 +33,6 @@ TCP连接(IP:端口) -> HTTP CONNECT 隧道 -> TLS 握手 -> GET https://speed.c
   失败，也会在输出中标注为**不稳定**，并保留**最近一次探测详情**（连通性参考），便于区分
   "稳定不可达"与"偶尔可达"。
 
-## 编译
-
-```powershell
-cd C:\Users\hy718\Desktop\ASNIPtest\主程序
-go build -o proxyipcheck.exe proxyipcheck.go
-```
 
 ## 输入文件格式（proxyip.txt）
 
