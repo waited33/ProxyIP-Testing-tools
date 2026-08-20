@@ -2,6 +2,13 @@
 
 批量检测 ProxyIP（Cloudflare 反代出口）是否可用，并导出 CSV。
 
+## 功能特性
+
+- 批量并发检测 ProxyIP 可用性，输出有效 / 不稳定 / 无效分层结果；
+- 自动采集 数据中心(colo)、地区(loc)、WARP、出口IP、HTTPS延迟 与下载测速；
+- **IP归属ASN**：每个被测 IP 离线标注自治系统编号（如 `AS13335`）与组织名，无需联网调 API；
+- 自动拆分生成 `{文件名}_valid.csv` / `{文件名}_invalid.csv` 便于脚本/程序识别。
+
 ## 原理
 
 对每个 ProxyIP 依次执行：
@@ -33,6 +40,13 @@ TCP连接(IP:端口) -> HTTP CONNECT 隧道 -> TLS 握手 -> GET https://speed.c
   失败，也会在输出中标注为**不稳定**，并保留**最近一次探测详情**（连通性参考），便于区分
   "稳定不可达"与"偶尔可达"。
 
+## 编译
+
+```powershell
+cd C:\Users\hy718\Desktop\ASNIPtest\主程序
+go mod tidy        # 首次编译自动拉取 ASN 检测依赖(geoip2-golang), 需联网
+go build -o proxyipcheck.exe
+```
 
 ## 输入文件格式（proxyip.txt）
 
@@ -71,6 +85,9 @@ proxyipcheck.exe -file proxyip.txt -retry=0 -speedtest=0
 
 # 对拿不准的节点多测几轮（结果更接近真实稳定性）
 proxyipcheck.exe -file proxyip.txt -retry 3 -retrywait 500 -speedtest=0
+
+# 批量标注每个IP归属ASN（建连1次+离线查库，不测速，最快出ASN清单）
+proxyipcheck.exe -file proxyip.txt -speedtest=0 -retry=0 -asn
 ```
 
 ## 参数说明
@@ -88,6 +105,8 @@ proxyipcheck.exe -file proxyip.txt -retry 3 -retrywait 500 -speedtest=0
 | `-cport` | 443 | CONNECT 隧道目标端口 |
 | `-timeout` | 5 | TCP 连接超时(秒)，网络不稳定可调大 |
 | `-webecho` | ipv4.icanhazip.com | 真实 Web 出口(IPv4)核对回显站；设为空字符串禁用 |
+| `-asn` | `true` | 是否检测 IP 归属 ASN：基于离线 MaxMind GeoLite2-ASN 数据库，首次运行自动下载；`false` 禁用 |
+| `-asndb` | 自动 | ASN 数据库 mmdb 文件路径（默认当前目录 `GeoLite2-ASN.mmdb`，不存在时自动下载） |
 | `-retry` | 2 | 失败自动重试次数：首次不通的节点最多重测 N 次，全部失败才判无效；0 为禁用重试 |
 | `-retrywait` | 500 | 重试间隔(毫秒)，避免瞬时抖动下的连续探测误判 |
 
@@ -96,7 +115,7 @@ proxyipcheck.exe -file proxyip.txt -retry 3 -retrywait 500 -speedtest=0
 `proxyip.csv`（UTF-8 BOM，Excel 可直接打开）列：
 
 ```
-IP, 端口, TCP延迟(ms), HTTPS延迟(ms), 出口IP, 出口类型, Web出口IP, 数据中心, 地区, WARP, 速度(MB/s), 状态, 说明
+IP, 端口, TCP延迟(ms), HTTPS延迟(ms), 出口IP, 出口类型, Web出口IP, 数据中心, 地区, ASN, ASN组织, WARP, 速度(MB/s), 状态, 说明
 ```
 
 结果按"**有效稳定 → 不稳定 → 无效**"分层，层内按 HTTPS 延迟升序、速度降序，有效结果靠前。
@@ -123,6 +142,10 @@ IP, 端口, TCP延迟(ms), HTTPS延迟(ms), 出口IP, 出口类型, Web出口IP,
 > - `出口类型`：`出口IP` 列的 IP 族，标注 `(CF链路)`——即 trace/`cf-meta-ip` 看到的接入 Cloudflare 的链路地址。
 > - `Web出口IP`：通过 `-webecho` 回显站核对出的**网页实际出口**（如 `101.32.239.42`）；
 >   节点拒绝非 Cloudflare 目标（CONNECT 400/EOF）时为空白，并在"说明"里注明"受限"。
+>
+> - `ASN` / `ASN组织`：被测 IP 的自治系统归属（如 `AS13335` / `Cloudflare, Inc.`），数据来自离线
+>   MaxMind GeoLite2-ASN 数据库；每个 IP 都会标注（与探测成败无关），数据库不存在时自动下载，
+>   下载失败则两列为空白并在启动时给出警告（可放好库后加 `-asn` 重新开启）。
 
 ## 常见问题
 
@@ -133,6 +156,9 @@ IP, 端口, TCP延迟(ms), HTTPS延迟(ms), 出口IP, 出口类型, Web出口IP,
   工具默认对不通节点自动重试 2 次（`-retry`）、全部失败才标"无效"；若标注为**不稳定**，说明探测期间
   出现过可达/不可达波动，请结合"说明"列的**最近一次参考**判断。确定不可达可换一批可直连的 CF IP，
   或用 `-timeout` 调大超时、`-max` 降低并发再试。
+- **ASN 列空白**：`GeoLite2-ASN.mmdb` 缺失且自动下载失败（网络受限/被墙）所致。可先手动获取该文件
+  放到程序目录，或用 `-asndb` 指向已有数据库；自动下载时会依次尝试直连与常见本地代理端口
+  （Clash 7890、v2rayN 10808/10809 等），兼容走了系统代理的网络。
 - **CONNECT 400 Bad Request**：该 IP 未被 Cloudflare 开放 CONNECT 服务，程序会自动降级为**直连探测**；
   若仍确认是 CF 反代节点则同样标为有效（"直连模式"），并直连测速站补全延迟/出口/地区/速度。
 - **测速为 0 但状态有效**：使用了 `-speedtest 0`，或测速连接未建立成功，不影响有效判断。
